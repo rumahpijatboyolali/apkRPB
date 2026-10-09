@@ -11,6 +11,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -142,6 +143,7 @@ public class MainActivity extends Activity {
     }
     private void showHome() {
         base("Dashboard");
+        menuCount=0;menuRow=null;
         heading("Selamat datang 👋");
         TextView intro=text("Pantau penjualan dan kelola transaksi Rumah Pijat Boyolali dari satu halaman.",14,0xFF8B8177,false);
         intro.setLineSpacing(dp(3),1f); LinearLayout.LayoutParams introP=new LinearLayout.LayoutParams(-1,-2);introP.bottomMargin=dp(18);content.addView(intro,introP);
@@ -149,8 +151,19 @@ public class MainActivity extends Activity {
         TextView status=text("Memuat ringkasan…",14,0xFF8B8177,false);status.setPadding(dp(4),dp(10),dp(4),dp(18));cards.addView(status);
         request("dashboard",new JSONObject(),r->{if(!r.optBoolean("success")){status.setText(r.optString("message","Gagal memuat data"));if(status.getText().toString().toLowerCase(Locale.ROOT).contains("login"))showLogin();return;}JSONObject d=result(r);cards.removeAllViews();String[][] metrics={{"Pijat Hari Ini",money(d.optDouble("todayTotal")),d.optInt("todayCount")+" transaksi pijat"},{"Pemasukan Lain Hari Ini",money(d.optDouble("todayOtherIncome")),"Di luar pemasukan pijat"},{"Pengeluaran Hari Ini",money(d.optDouble("todayExpense")),"Total pengeluaran harian"},{"Bersih Hari Ini",money(d.optDouble("todayNet")),"Pemasukan dikurangi pengeluaran"},{"Pendapatan Bulan Ini",money(d.optDouble("monthTotal")+d.optDouble("monthOtherIncome")),"Pijat + pemasukan lain"},{"Bersih Bulan Ini",money(d.optDouble("monthNet")),"Pendapatan dikurangi pengeluaran"}};int widthDp=getResources().getConfiguration().screenWidthDp;int columns=widthDp>360?2:1;for(int i=0;i<metrics.length;i++){if(i%columns==0){LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);cards.addView(row,new LinearLayout.LayoutParams(-1,-2));}LinearLayout row=(LinearLayout)cards.getChildAt(cards.getChildCount()-1);View item=cardView(metrics[i][0],metrics[i][1],metrics[i][2]);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(dp(i%columns==0?0:5),dp(0),dp(i%columns==columns-1?0:5),dp(10));row.addView(item,cp);if(columns==2&&i==metrics.length-1){View spacer=new View(this);row.addView(spacer,new LinearLayout.LayoutParams(0,1,1));}}});
         gap(2); heading("Menu utama");
-        button("Jadwal pijat",true,v->showSchedules());button("Tambah transaksi",false,v->showAddTransaction());button("Daftar transaksi",false,v->showTransactions());
+        addMenu("📅  Jadwal Pijat",()->showSchedules());
+        addMenu("↗  Grafik Omzet",()->showChart());
+        addMenu("＋  Input Transaksi",()->showAddTransaction());
+        addMenu("↗  Pemasukan Lain",()->showCashflowForm(true));
+        addMenu("↘  Pengeluaran",()->showCashflowForm(false));
+        addMenu("▤  Daftar Transaksi",()->showTransactions());
+        addMenu("▦  Rekap Bulanan",()->showMonthlyRecap());
         button("Keluar",false,v->{request("logout",new JSONObject(),r->{token="";showLogin();});});
+    }
+    private LinearLayout menuRow; private int menuCount;
+    private void addMenu(String label,Runnable action){
+        if(menuCount%2==0){menuRow=new LinearLayout(this);menuRow.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(8);content.addView(menuRow,rp);}
+        Button tile=new Button(this);tile.setText(label);tile.setAllCaps(false);tile.setTextSize(13);tile.setTypeface(Typeface.DEFAULT,Typeface.BOLD);tile.setTextColor(INK);tile.setGravity(Gravity.CENTER);tile.setMinHeight(dp(58));tile.setPadding(dp(8),dp(8),dp(8),dp(8));tile.setBackground(shape(PAPER,14,0xFFEBE3D8));tile.setElevation(dp(2));tile.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(menuCount%2==0?0:5),0,dp(menuCount%2==1?0:5),0);menuRow.addView(tile,p);menuCount++;
     }
     private View cardView(String title,String value,String sub) { LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(13),dp(14),dp(13),dp(14));box.setBackground(shape(PAPER,16,0xFFEBE3D8));box.setElevation(dp(2));TextView label=text(title,12,0xFF8B8177,true);box.addView(label);TextView amount=text(value,22,INK,true);amount.setSingleLine(true);amount.setTextSize(getResources().getConfiguration().screenWidthDp<=380?17:21);amount.setLetterSpacing(-.02f);amount.setIncludeFontPadding(false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(10);box.addView(amount,ap);TextView secondary=text(sub,11,0xFF8B8177,false);secondary.setLineSpacing(dp(2),1f);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=dp(6);box.addView(secondary,sp);return box; }
     private String money(double n) { return NumberFormat.getCurrencyInstance(new Locale("id","ID")).format(n).replace(",00", ""); }
@@ -173,6 +186,30 @@ public class MainActivity extends Activity {
     private void showTransactions() {
         base("Transaksi");heading("Transaksi terbaru");TextView status=text("Memuat transaksi…",14,INK,false);content.addView(status);
         request("transactions",new JSONObject(),r->{if(!r.optBoolean("success")){status.setText(r.optString("message"));return;}JSONArray rows=r.optJSONArray("result");content.removeView(status);if(rows==null||rows.length()==0){content.addView(text("Belum ada transaksi.",14,0xFF76695D,false));return;}int limit=Math.min(rows.length(),60);for(int i=0;i<limit;i++){JSONObject row=rows.optJSONObject(i);if(row==null)continue;LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(15),dp(13),dp(15),dp(13));box.setBackground(shape(PAPER,14,0xFFEBE3D8));box.setElevation(dp(1));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(9);content.addView(box,p);box.addView(text(row.optString("tanggal"),12,GOLD,true));TextView name=text(row.optString("nama"),16,INK,true);LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-1,-2);np.topMargin=dp(4);box.addView(name,np);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,-2);ap.topMargin=dp(3);box.addView(text(money(row.optDouble("nominal")),14,INK,false),ap);}});
+        button("Kembali",false,v->showHome());
+    }
+
+    private void showCashflowForm(boolean income){
+        String title=income?"Pemasukan Lain":"Pengeluaran",action=income?"addOtherIncome":"addExpense";
+        base(title);heading("Catat "+title.toLowerCase(Locale.ROOT));
+        EditText date=field("Tanggal (YYYY-MM-DD)");date.setText(today());
+        EditText description=field("Keterangan");EditText amount=field("Nominal (contoh 30000)");amount.setInputType(2);
+        button(income?"Simpan Pemasukan":"Simpan Pengeluaran",true,v->{JSONObject data=obj("tanggal",date.getText().toString(),"keterangan",description.getText().toString().trim(),"nominal",amount.getText().toString());request(action,data,r->{if(r.optBoolean("success")){JSONObject x=result(r);toast(x==null?"Data tersimpan":x.optString("message"));showHome();}else toast(r.optString("message","Gagal menyimpan data"));});});
+        gap(8);heading("Data bulan ini");TextView status=text("Memuat data…",14,0xFF8B8177,false);content.addView(status);
+        request(income?"otherIncomes":"expenses",obj("month",String.valueOf(Calendar.getInstance().get(Calendar.MONTH)+1),"year",String.valueOf(Calendar.getInstance().get(Calendar.YEAR))),r->{if(!r.optBoolean("success")){status.setText(r.optString("message","Gagal memuat data"));return;}JSONArray rows=r.optJSONArray("result");content.removeView(status);if(rows==null||rows.length()==0){content.addView(text("Belum ada data bulan ini.",14,0xFF8B8177,false));return;}for(int i=0;i<Math.min(rows.length(),30);i++){JSONObject item=rows.optJSONObject(i);if(item!=null)cashflowCard(item,income);}});
+        button("Kembali",false,v->showHome());
+    }
+    private void cashflowCard(JSONObject item,boolean income){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(14),dp(12),dp(14),dp(12));box.setBackground(shape(PAPER,14,0xFFEBE3D8));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(9);content.addView(box,p);box.addView(text(item.optString("tanggal"),12,GOLD,true));TextView desc=text(item.optString("keterangan"),15,INK,true);LinearLayout.LayoutParams dp2=new LinearLayout.LayoutParams(-1,-2);dp2.topMargin=dp(3);box.addView(desc,dp2);LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setOrientation(LinearLayout.HORIZONTAL);row.addView(text(money(item.optDouble("nominal")),14,INK,true),new LinearLayout.LayoutParams(0,-2,1));Button del=new Button(this);del.setText("Hapus");del.setAllCaps(false);del.setTextColor(0xFFB83A32);del.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("Hapus catatan ini?").setNegativeButton("Batal",null).setPositiveButton("Hapus",(a,b)->request(income?"deleteOtherIncome":"deleteExpense",obj("id",item.optString("id")),r->{toast(r.optString("message","Selesai"));showCashflowForm(income);})).show());row.addView(del);box.addView(row);}
+
+    private void showMonthlyRecap(){
+        base("Rekap Bulanan");heading("Rekap Keuangan");int year=Calendar.getInstance().get(Calendar.YEAR);TextView summary=text("Ringkasan pemasukan, pengeluaran, dan hasil bersih tahun "+year,13,0xFF8B8177,false);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.bottomMargin=dp(14);content.addView(summary,sp);TextView status=text("Memuat rekap…",14,INK,false);content.addView(status);
+        request("monthlyRecap",obj("year",String.valueOf(year)),r->{if(!r.optBoolean("success")){status.setText(r.optString("message","Gagal memuat rekap"));return;}JSONArray rows=r.optJSONArray("result");content.removeView(status);long annualNet=0;if(rows==null)return;for(int i=0;i<rows.length();i++){JSONObject m=rows.optJSONObject(i);if(m==null)continue;annualNet+=m.optLong("net");LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(14),dp(12),dp(14),dp(12));box.setBackground(shape(PAPER,14,0xFFEBE3D8));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(8);content.addView(box,p);box.addView(text(m.optString("label"),15,INK,true));box.addView(text("Pijat  "+money(m.optDouble("pijat")),12,0xFF76695D,false));box.addView(text("Pemasukan lain  "+money(m.optDouble("otherIncome")),12,0xFF76695D,false));box.addView(text("Pengeluaran  "+money(m.optDouble("expense")),12,0xFF76695D,false));TextView net=text("Bersih  "+money(m.optDouble("net")),13,GOLD,true);LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-1,-2);np.topMargin=dp(4);box.addView(net,np);}View total=cardView("Saldo Bersih Setahun",money(annualNet),"Tahun "+year);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,-2);tp.topMargin=dp(5);content.addView(total,tp);});
+        button("Kembali",false,v->showHome());
+    }
+
+    private void showChart(){
+        base("Grafik Omzet");heading("Grafik Omzet");TextView caption=text("Perkembangan pendapatan per bulan",13,0xFF8B8177,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.bottomMargin=dp(12);content.addView(caption,cp);TextView status=text("Memuat grafik…",14,INK,false);content.addView(status);
+        request("monthlyRecap",obj("year",String.valueOf(Calendar.getInstance().get(Calendar.YEAR))),r->{if(!r.optBoolean("success")){status.setText(r.optString("message","Gagal memuat grafik"));return;}JSONArray rows=r.optJSONArray("result");content.removeView(status);if(rows==null)return;double max=1,total=0;for(int i=0;i<rows.length();i++){JSONObject m=rows.optJSONObject(i);if(m!=null){double v=m.optDouble("pijat")+m.optDouble("otherIncome");max=Math.max(max,v);total+=v;}}for(int i=0;i<rows.length();i++){JSONObject m=rows.optJSONObject(i);if(m==null)continue;double v=m.optDouble("pijat")+m.optDouble("otherIncome");LinearLayout line=new LinearLayout(this);line.setOrientation(LinearLayout.HORIZONTAL);line.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(34));content.addView(line,lp);TextView month=text(m.optString("label").substring(0,3),11,0xFF8B8177,true);line.addView(month,new LinearLayout.LayoutParams(dp(38),-2));ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress((int)Math.round(v/max*100));bar.setProgressTintList(android.content.res.ColorStateList.valueOf(GOLD));bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFEBE3D8));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(0,dp(12),1);bp.setMargins(0,0,dp(9),0);line.addView(bar,bp);TextView value=text(money(v),11,INK,true);line.addView(value);}gap(8);View totalCard=cardView("Total Omzet Tahun Ini",money(total),"Pijat + pemasukan lain");content.addView(totalCard,new LinearLayout.LayoutParams(-1,-2));});
         button("Kembali",false,v->showHome());
     }
 
